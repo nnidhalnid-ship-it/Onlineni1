@@ -2,50 +2,91 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
+const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const app = express();
 app.use(cors({ origin: "*" }));
+app.use(express.json());
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+// ربط قاعدة البيانات MongoDB الخاص بك
+const MONGO_URI = "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w0=majority&appName=Cluster0";
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log("MongoDB Connected Successfully"))
+  .catch(err => console.log("DB Connection Error:", err));
+
+// نموذج المستخدم لتخزين الحسابات وكلمات المرور المشفرة
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+const User = mongoose.model("User", UserSchema);
+
+// مسار إنشاء حساب جديد (Sign Up)
+app.post("/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "يرجى إدخال جميع البيانات" });
+
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ error: "اسم المستخدم مستعمل بالفعل" });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword });
+    await newUser.save();
+
+    res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
+  } catch (err) {
+    res.status(500).json({ error: "حدث خطأ في السيرفر" });
+  }
 });
 
-// تخزين الحسابات المتصلة حالياً: { username: socketId }
-const users = {};
+// مسار تسجيل الدخول (Log In)
+app.post("/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(400).json({ error: "اسم المستخدم غير موجود" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
+
+    res.json({ success: true, username: user.username });
+  } catch (err) {
+    res.status(500).json({ error: "حدث خطأ في السيرفر" });
+  }
+});
+
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+
+const activeUsers = {};
 
 io.on("connection", (socket) => {
-  // عند تسجيل دخول اسم جديد
-  socket.on("register_user", (username) => {
-    users[username] = socket.id;
+  socket.on("register_online", (username) => {
+    activeUsers[username] = socket.id;
     socket.username = username;
-    
-    // إرسال قائمة كل المستخدمين المتصلين حالياً للجميع
-    io.emit("update_user_list", Object.keys(users));
+    io.emit("update_user_list", Object.keys(activeUsers));
   });
 
-  // إرسال رسالة خاصة لشخص محدد
   socket.on("private_message", ({ recipient, text }) => {
-    const recipientSocketId = users[recipient];
+    const recipientSocketId = activeUsers[recipient];
     if (recipientSocketId) {
-      // إرسال الرسالة للطرف الآخر
       io.to(recipientSocketId).emit("receive_private_message", {
         sender: socket.username,
-        text: text
+        text
       });
     }
   });
 
-  // عند انقطاع الاتصال
   socket.on("disconnect", () => {
     if (socket.username) {
-      delete users[socket.username];
-      io.emit("update_user_list", Object.keys(users));
+      delete activeUsers[socket.username];
+      io.emit("update_user_list", Object.keys(activeUsers));
     }
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Private Chat Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
