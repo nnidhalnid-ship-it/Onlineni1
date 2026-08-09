@@ -9,21 +9,20 @@ const app = express();
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ربط قاعدة البيانات MongoDB الخاص بك
-const MONGO_URI = "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w0=majority&appName=Cluster0";
+// رابط MongoDB الخاص بك بعد إزالة الزوائد التي تسبب خطأ التمرير
+const MONGO_URI = "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrkl0.mongodb.net/onlineni_db";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch(err => console.log("DB Connection Error:", err));
 
-// نموذج المستخدم لتخزين الحسابات وكلمات المرور المشفرة
 const UserSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true }
 });
 const User = mongoose.model("User", UserSchema);
 
-// مسار إنشاء حساب جديد (Sign Up)
+// مسار إنشاء حساب جديد
 app.post("/register", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -38,11 +37,12 @@ app.post("/register", async (req, res) => {
 
     res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
   } catch (err) {
-    res.status(500).json({ error: "حدث خطأ في السيرفر" });
+    console.error("Register Error Details:", err);
+    res.status(500).json({ error: "خطأ في السيرفر: " + err.message });
   }
 });
 
-// مسار تسجيل الدخول (Log In)
+// مسار تسجيل الدخول
 app.post("/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -54,7 +54,8 @@ app.post("/login", async (req, res) => {
 
     res.json({ success: true, username: user.username });
   } catch (err) {
-    res.status(500).json({ error: "حدث خطأ في السيرفر" });
+    console.error("Login Error Details:", err);
+    res.status(500).json({ error: "خطأ في السيرفر: " + err.message });
   }
 });
 
@@ -70,12 +71,15 @@ io.on("connection", (socket) => {
     io.emit("update_user_list", Object.keys(activeUsers));
   });
 
-  socket.on("private_message", ({ recipient, text }) => {
+  socket.on("private_message", ({ recipient, text, fileData, fileName, type }) => {
     const recipientSocketId = activeUsers[recipient];
     if (recipientSocketId) {
       io.to(recipientSocketId).emit("receive_private_message", {
         sender: socket.username,
-        text
+        text,
+        fileData,
+        fileName,
+        type
       });
     }
   });
