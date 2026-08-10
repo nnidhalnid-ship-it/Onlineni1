@@ -26,15 +26,15 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// 1. إعدادات Cloudinary بمفاتيحك
+// 1. إعدادات Cloudinary
 cloudinary.config({ 
   cloud_name: 'yerbm3xu', 
   api_key: '556822354784538', 
   api_secret: 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
 });
 
-// 2. الاتصال بقاعدة البيانات MongoDB Atlas (بالرابط الصحيح المستخرج من الشاشة)
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:123456789nidhal@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w=majority&appName=Cluster0";
+// 2. الاتصال بقاعدة البيانات MongoDB Atlas
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:nidhal2014@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
@@ -45,9 +45,9 @@ const messageSchema = new mongoose.Schema({
   sender: { type: String, required: true },
   recipient: { type: String, required: true },
   text: { type: String, default: "" },
-  fileUrl: { type: String, default: null }, // حفظ رابط Cloudinary فقط
+  fileUrl: { type: String, default: null },
   fileName: { type: String, default: "" },
-  type: { type: String, default: "text" }, // text, image, audio, video, file
+  type: { type: String, default: "text" },
   timestamp: { type: Date, default: Date.now }
 });
 
