@@ -1,87 +1,56 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const cors = require("cors");
 const mongoose = require("mongoose");
+const cors = require("cors");
 const bcrypt = require("bcryptjs");
+const cloudinary = require("cloudinary").v2;
 
 const app = express();
-app.use(cors({ origin: "*" }));
-app.use(express.json({ limit: "50mb" })); // زيادة الحجم لدعم الصوتيات والملفات
+const server = http.createServer(app);
 
-// رابط MongoDB الخاص بك
-const MONGO_URI = "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrkl0.mongodb.net/onlineni_db";
+// إعدادات Socket.io مع رفع سعة الحجم إلى 100 ميجابايت
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  },
+  maxHttpBufferSize: 1e8 // 100 Megabytes
+});
+
+app.use(cors());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
+
+// 1. إعدادات Cloudinary بمفاتيحك الخاصة
+cloudinary.config({ 
+  cloud_name: 'yerbm3xu', 
+  api_key: '556822354784538', 
+  api_secret: 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
+});
+
+// 2. الاتصال بقاعدة البيانات MongoDB Atlas
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrk10.mongodb.net/onlineni_db";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
-  .catch(err => console.log("DB Connection Error:", err));
+  .catch((err) => console.log("DB Connection Error:", err));
 
-// نموذج المستخدمين
-const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
-});
-const User = mongoose.model("User", UserSchema);
-
-// نموذج حفظ الرسائل
-const MessageSchema = new mongoose.Schema({
-  sender: String,
-  recipient: String,
-  text: String,
-  fileData: String,
-  fileName: String,
-  type: String, // 'text', 'file', 'audio'
+// 3. هيكل مخطط الرسائل (Message Schema)
+const messageSchema = new mongoose.Schema({
+  sender: { type: String, required: true },
+  recipient: { type: String, required: true },
+  text: { type: String, default: "" },
+  fileUrl: { type: String, default: null }, // حفظ رابط Cloudinary فقط
+  fileName: { type: String, default: "" },
+  type: { type: String, default: "text" }, // text, image, audio, video, file
   timestamp: { type: Date, default: Date.now }
 });
-const Message = mongoose.model("Message", MessageSchema);
 
-// إنشاء حساب
-app.post("/register", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: "يرجى إدخال جميع البيانات" });
+const Message = mongoose.model("Message", messageSchema);
 
-    const existingUser = await User.findOne({ username });
-    if (existingUser) return res.status(400).json({ error: "اسم المستخدم مستعمل بالفعل" });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword });
-    await newUser.save();
-
-    res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في السيرفر: " + err.message });
-  }
-});
-
-// تسجيل الدخول
-app.post("/login", async (req, res) => {
-  try {
-    const { username, password } = req.body;
-    const user = await User.findOne({ username });
-    if (!user) return res.status(400).json({ error: "اسم المستخدم غير موجود" });
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(400).json({ error: "كلمة المرور غير صحيحة" });
-
-    res.json({ success: true, username: user.username });
-  } catch (err) {
-    res.status(500).json({ error: "خطأ في السيرفر: " + err.message });
-  }
-});
-
-// جلب جميع المستخدمين المسجلين في التطبيق
-app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find({}, "username");
-    res.json(users.map(u => u.username));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// جلب سجل الرسائل السابق بين مستخدمين
-app.get("/messages/:user1/:user2", async (req, res) => {
+// 4. مسار API لجلب الرسائل القديمة
+app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
     const messages = await Message.find({
@@ -90,55 +59,66 @@ app.get("/messages/:user1/:user2", async (req, res) => {
         { sender: user2, recipient: user1 }
       ]
     }).sort({ timestamp: 1 });
+    
     res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (error) {
+    res.status(500).json({ error: "فشل في جلب الرسائل" });
   }
 });
 
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" }, maxHttpBufferSize: 1e8 });
-
-const activeUsers = {};
-
+// 5. إدارة اتصالات Socket.io اللحظية
 io.on("connection", (socket) => {
-  socket.on("register_online", (username) => {
-    activeUsers[username] = socket.id;
-    socket.username = username;
-    io.emit("update_online_users", Object.keys(activeUsers));
+  console.log("مستخدم جديد متصل:", socket.id);
+
+  // الانضمام لغرفة باسم المستخدم لتلقي الرسائل الخاصة
+  socket.on("join_room", (username) => {
+    socket.join(username);
+    console.log(`المستخدم ${username} انضم للغرفة الخاصة به`);
   });
 
-  socket.on("private_message", async ({ recipient, text, fileData, fileName, type }) => {
-    // 1. حفظ الرسالة في قاعدة البيانات
-    const msgData = {
-      sender: socket.username,
-      recipient,
-      text,
-      fileData,
-      fileName,
-      type: type || "text",
-      timestamp: new Date()
-    };
-    
-    if (recipient !== "AI Assistant") {
-      const savedMsg = new Message(msgData);
-      await savedMsg.save();
-    }
+  // استقبال وإرسال الرسائل الخاصة
+  socket.on("private_message", async (data) => {
+    try {
+      let uploadedFileUrl = null;
 
-    // 2. إرسال للمستلم إذا كان متصلاً
-    const recipientSocketId = activeUsers[recipient];
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit("receive_private_message", msgData);
+      // إذا كانت الرسالة تحتوي على ملف (صورة، صوت، فيديو) نرفعه لـ Cloudinary أولاً
+      if (data.fileData) {
+        const uploadResponse = await cloudinary.uploader.upload(data.fileData, {
+          resource_type: "auto", // يحدد نوع الملف تلقائياً
+          folder: "chat_app_media"
+        });
+        uploadedFileUrl = uploadResponse.secure_url;
+      }
+
+      // حفظ بيانات الرسالة بالرابط فقط في MongoDB
+      const newMessage = new Message({
+        sender: data.sender,
+        recipient: data.recipient,
+        text: data.text || "",
+        fileUrl: uploadedFileUrl,
+        fileName: data.fileName || "",
+        type: data.type || "text",
+        timestamp: new Date()
+      });
+
+      await newMessage.save();
+
+      // إرسال الرسالة فوراً للطرفين (المستلم والراسل)
+      io.to(data.recipient).emit("receive_message", newMessage);
+      io.to(data.sender).emit("receive_message", newMessage);
+
+    } catch (error) {
+      console.error("خطأ أثناء معالجة أو رفع الرسالة:", error);
     }
   });
 
   socket.on("disconnect", () => {
-    if (socket.username) {
-      delete activeUsers[socket.username];
-      io.emit("update_online_users", Object.keys(activeUsers));
-    }
+    console.log("انقطع اتصال مستخدم:", socket.id);
   });
 });
 
+// تشغيل السيرفر على المنفذ المخصص
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`السيرفر يعمل بنجاح على المنفذ ${PORT}`);
+});
