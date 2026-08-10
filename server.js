@@ -33,7 +33,6 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch((err) => console.log("DB Connection Error:", err));
 
-// Schema المستخدمين مع خاصية صورة البروفايل
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -41,7 +40,6 @@ const userSchema = new mongoose.Schema({
 });
 const User = mongoose.model("User", userSchema);
 
-// Schema الرسائل
 const messageSchema = new mongoose.Schema({
   sender: { type: String, required: true },
   recipient: { type: String, required: true },
@@ -53,7 +51,6 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", messageSchema);
 
-// إنشاء حساب جديد
 app.post("/api/register", async (req, res) => {
   try {
     const { username, password, avatar } = req.body;
@@ -74,11 +71,10 @@ app.post("/api/register", async (req, res) => {
 
     res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
   } catch (error) {
-    res.status(500).json({ error: "حدث خطأ في السيرفر أثناء التسجيل" });
+    res.status(500).json({ error: "حدث خطأ أثناء التسجيل" });
   }
 });
 
-// تسجيل الدخول
 app.post("/api/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -90,11 +86,10 @@ app.post("/api/login", async (req, res) => {
 
     res.json({ success: true, username: user.username, avatar: user.avatar });
   } catch (error) {
-    res.status(500).json({ error: "حدث خطأ في السيرفر أثناء تسجيل الدخول" });
+    res.status(500).json({ error: "حدث خطأ أثناء تسجيل الدخول" });
   }
 });
 
-// البحث عن المستخدمين
 app.get("/api/users/search", async (req, res) => {
   try {
     const { q, current } = req.query;
@@ -108,7 +103,6 @@ app.get("/api/users/search", async (req, res) => {
   }
 });
 
-// جلب المحادثات السابقة أوتوماتيكيًا
 app.get("/api/conversations/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -129,7 +123,6 @@ app.get("/api/conversations/:username", async (req, res) => {
   }
 });
 
-// جلب سجل الرسائل بين شخصين
 app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
@@ -174,13 +167,31 @@ io.on("connection", (socket) => {
 
       await newMessage.save();
 
+      // إرسال الرسالة للطرفين بشكل موحد دون تكرار
       io.to(data.recipient).emit("receive_message", newMessage);
       io.to(data.sender).emit("receive_message", newMessage);
     } catch (error) {
       console.error("خطأ في إرسال الرسالة:", error);
     }
   });
+
+  // إشارات المكالمات WebRTC Signaling
+  socket.on("call_user", (data) => {
+    io.to(data.userToCall).emit("call_incoming", {
+      signal: data.signalData,
+      from: data.from,
+      isVideo: data.isVideo
+    });
+  });
+
+  socket.on("answer_call", (data) => {
+    io.to(data.to).emit("call_accepted", data.signal);
+  });
+
+  socket.on("end_call", (data) => {
+    io.to(data.to).emit("call_ended");
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`السيرفر يعمل بنجاح على المنفذ ${PORT}`));
+server.listen(PORT, () => console.log(`السيرفر يعمل على المنفذ ${PORT}`));
