@@ -29,8 +29,8 @@ cloudinary.config({
   api_secret: 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
 });
 
-// 2. الاتصال بقاعدة البيانات MongoDB Atlas
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:fUgHFe8BfIemZUMy@cluster0.evcrk10.mongodb.net/onlineni_db";
+// 2. الاتصال بقاعدة البيانات MongoDB Atlas (بالرابط الصحيح)
+const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid:123456789nidhal@cluster0.o5s2i.mongodb.net/?retryWrites=true&w=majority";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
