@@ -7,40 +7,40 @@ const bcrypt = require("bcryptjs");
 const cloudinary = require("cloudinary").v2;
 const dns = require("dns");
 
-// إجبار IPv4 لتفادي أخطاء الشبكة في Render
 dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
 const server = http.createServer(app);
 
-// إعدادات Socket.io مع رفع سعة الحجم إلى 100 ميجابايت
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  },
-  maxHttpBufferSize: 1e8 // 100 Megabytes
+  cors: { origin: "*", methods: ["GET", "POST"] },
+  maxHttpBufferSize: 1e8
 });
 
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// 1. إعدادات Cloudinary
 cloudinary.config({ 
   cloud_name: 'yerbm3xu', 
   api_key: '556822354784538', 
   api_secret: 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
 });
 
-// 2. الاتصال بقاعدة البيانات MongoDB Atlas
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:nidhal2014@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch((err) => console.log("DB Connection Error:", err));
 
-// 3. هيكل مخطط الرسائل (Message Schema)
+// schema المستخدمين
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true }
+});
+const User = mongoose.model("User", userSchema);
+
+// schema الرسائل
 const messageSchema = new mongoose.Schema({
   sender: { type: String, required: true },
   recipient: { type: String, required: true },
@@ -50,10 +50,44 @@ const messageSchema = new mongoose.Schema({
   type: { type: String, default: "text" },
   timestamp: { type: Date, default: Date.now }
 });
-
 const Message = mongoose.model("Message", messageSchema);
 
-// 4. مسار API لجلب الرسائل القديمة
+// مسار إنشاء حساب جديد
+app.post("/api/register", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: "يرجى ملء جميع الحقول" });
+
+    const existingUser = await User.findOne({ username });
+    if (existingUser) return res.status(400).json({ error: "اسم المستخدم موجود بالفعل" });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new User({ username, password: hashedPassword });
+    await newUser.save();
+
+    res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
+  } catch (error) {
+    res.status(500).json({ error: "حدث خطأ في السيرفر أثناء التسجيل" });
+  }
+});
+
+// مسار تسجيل الدخول
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    if (!user) return res.status(400).json({ error: "اسم المستخدم غير موجود" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ error: "كلمة السر غير صحيحة" });
+
+    res.json({ success: true, username: user.username });
+  } catch (error) {
+    res.status(500).json({ error: "حدث خطأ في السيرفر أثناء تسجيل الدخول" });
+  }
+});
+
+// مسار جلب الرسائل
 app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
@@ -70,19 +104,16 @@ app.get("/api/messages/:user1/:user2", async (req, res) => {
   }
 });
 
-// 5. إدارة اتصالات Socket.io اللحظية
 io.on("connection", (socket) => {
   console.log("مستخدم جديد متصل:", socket.id);
 
   socket.on("join_room", (username) => {
     socket.join(username);
-    console.log(`المستخدم ${username} انضم للغرفة الخاصة به`);
   });
 
   socket.on("private_message", async (data) => {
     try {
       let uploadedFileUrl = null;
-
       if (data.fileData) {
         const uploadResponse = await cloudinary.uploader.upload(data.fileData, {
           resource_type: "auto",
@@ -105,9 +136,8 @@ io.on("connection", (socket) => {
 
       io.to(data.recipient).emit("receive_message", newMessage);
       io.to(data.sender).emit("receive_message", newMessage);
-
     } catch (error) {
-      console.error("خطأ أثناء معالجة أو رفع الرسالة:", error);
+      console.error("خطأ في إرسال الرسالة:", error);
     }
   });
 
@@ -117,6 +147,4 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`السيرفر يعمل بنجاح على المنفذ ${PORT}`);
-});
+server.listen(PORT, () => console.log(`السيرفر يعمل بنجاح على المنفذ ${PORT}`));
