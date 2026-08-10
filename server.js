@@ -33,14 +33,15 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch((err) => console.log("DB Connection Error:", err));
 
-// schema المستخدمين
+// Schema المستخدمين مع خاصية صورة البروفايل
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
-  password: { type: String, required: true }
+  password: { type: String, required: true },
+  avatar: { type: String, default: "" }
 });
 const User = mongoose.model("User", userSchema);
 
-// schema الرسائل
+// Schema الرسائل
 const messageSchema = new mongoose.Schema({
   sender: { type: String, required: true },
   recipient: { type: String, required: true },
@@ -52,17 +53,23 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", messageSchema);
 
-// مسار إنشاء حساب جديد
+// إنشاء حساب جديد
 app.post("/api/register", async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, password, avatar } = req.body;
     if (!username || !password) return res.status(400).json({ error: "يرجى ملء جميع الحقول" });
 
     const existingUser = await User.findOne({ username });
     if (existingUser) return res.status(400).json({ error: "اسم المستخدم موجود بالفعل" });
 
+    let avatarUrl = "";
+    if (avatar) {
+      const uploadRes = await cloudinary.uploader.upload(avatar, { folder: "chat_avatars" });
+      avatarUrl = uploadRes.secure_url;
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ username, password: hashedPassword });
+    const newUser = new User({ username, password: hashedPassword, avatar: avatarUrl });
     await newUser.save();
 
     res.json({ success: true, message: "تم إنشاء الحساب بنجاح" });
@@ -71,7 +78,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
-// مسار تسجيل الدخول
+// تسجيل الدخول
 app.post("/api/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -81,13 +88,48 @@ app.post("/api/login", async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: "كلمة السر غير صحيحة" });
 
-    res.json({ success: true, username: user.username });
+    res.json({ success: true, username: user.username, avatar: user.avatar });
   } catch (error) {
     res.status(500).json({ error: "حدث خطأ في السيرفر أثناء تسجيل الدخول" });
   }
 });
 
-// مسار جلب الرسائل
+// البحث عن المستخدمين
+app.get("/api/users/search", async (req, res) => {
+  try {
+    const { q, current } = req.query;
+    const users = await User.find({
+      username: { $regex: q, $options: "i" },
+      username: { $ne: current }
+    }).select("username avatar");
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: "خطأ في البحث" });
+  }
+});
+
+// جلب المحادثات السابقة أوتوماتيكيًا
+app.get("/api/conversations/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    const messages = await Message.find({
+      $or: [{ sender: username }, { recipient: username }]
+    }).sort({ timestamp: -1 });
+
+    const contactsSet = new Set();
+    messages.forEach(m => {
+      if (m.sender !== username) contactsSet.add(m.sender);
+      if (m.recipient !== username) contactsSet.add(m.recipient);
+    });
+
+    const contacts = await User.find({ username: { $in: Array.from(contactsSet) } }).select("username avatar");
+    res.json(contacts);
+  } catch (error) {
+    res.status(500).json({ error: "خطأ في جلب المحادثات" });
+  }
+});
+
+// جلب سجل الرسائل بين شخصين
 app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
@@ -105,8 +147,6 @@ app.get("/api/messages/:user1/:user2", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
-  console.log("مستخدم جديد متصل:", socket.id);
-
   socket.on("join_room", (username) => {
     socket.join(username);
   });
@@ -139,10 +179,6 @@ io.on("connection", (socket) => {
     } catch (error) {
       console.error("خطأ في إرسال الرسالة:", error);
     }
-  });
-
-  socket.on("disconnect", () => {
-    console.log("انقطع اتصال مستخدم:", socket.id);
   });
 });
 
