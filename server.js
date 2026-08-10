@@ -51,6 +51,7 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", messageSchema);
 
+// تسجيل حساب مع ضمان رفع صورة البروفايل فوراً إلى Cloudinary
 app.post("/api/register", async (req, res) => {
   try {
     const { username, password, avatar } = req.body;
@@ -60,7 +61,7 @@ app.post("/api/register", async (req, res) => {
     if (existingUser) return res.status(400).json({ error: "اسم المستخدم موجود بالفعل" });
 
     let avatarUrl = "";
-    if (avatar) {
+    if (avatar && avatar.startsWith("data:image")) {
       const uploadRes = await cloudinary.uploader.upload(avatar, { folder: "chat_avatars" });
       avatarUrl = uploadRes.secure_url;
     }
@@ -167,7 +168,6 @@ io.on("connection", (socket) => {
 
       await newMessage.save();
 
-      // إرسال الرسالة للطرفين بشكل موحد دون تكرار
       io.to(data.recipient).emit("receive_message", newMessage);
       io.to(data.sender).emit("receive_message", newMessage);
     } catch (error) {
@@ -175,21 +175,21 @@ io.on("connection", (socket) => {
     }
   });
 
-  // إشارات المكالمات WebRTC Signaling
-  socket.on("call_user", (data) => {
-    io.to(data.userToCall).emit("call_incoming", {
-      signal: data.signalData,
-      from: data.from,
-      isVideo: data.isVideo
+  // تنبيهات المكالمات الصادرة والواردة لضمان رنين الموبايل/الكمبيوتر
+  socket.on("make_call", (data) => {
+    io.to(data.recipient).emit("incoming_call", {
+      caller: data.caller,
+      isVideo: data.isVideo,
+      peerId: data.peerId
     });
   });
 
-  socket.on("answer_call", (data) => {
-    io.to(data.to).emit("call_accepted", data.signal);
+  socket.on("accept_call", (data) => {
+    io.to(data.caller).emit("call_accepted_signal", { peerId: data.peerId });
   });
 
-  socket.on("end_call", (data) => {
-    io.to(data.to).emit("call_ended");
+  socket.on("reject_call", (data) => {
+    io.to(data.caller).emit("call_rejected_signal");
   });
 });
 
