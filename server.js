@@ -6,6 +6,7 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const cloudinary = require("cloudinary").v2;
 const dns = require("dns");
+const path = require("path");
 
 dns.setDefaultResultOrder("ipv4first");
 
@@ -17,22 +18,29 @@ const io = new Server(server, {
   maxHttpBufferSize: 1e8
 });
 
+// إعداد الوسطاء (Middlewares)
 app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+// تقديم الملفات الثابتة (مثل index.html)
+app.use(express.static(path.join(__dirname, "public")));
+
+// إعداد Cloudinary
 cloudinary.config({ 
-  cloud_name: 'yerbm3xu', 
-  api_key: '556822354784538', 
-  api_secret: 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME || 'yerbm3xu', 
+  api_key: process.env.CLOUDINARY_API_KEY || '556822354784538', 
+  api_secret: process.env.CLOUDINARY_API_SECRET || 'D_dtbz6U-DBOu3z6G3ijoFxXxZU' 
 });
 
+// الاتصال بقاعدة البيانات MongoDB
 const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://nnidhalnid_db_user:nidhal2014@cluster0.evcrkl0.mongodb.net/onlineni_db?retryWrites=true&w=majority&appName=Cluster0";
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log("MongoDB Connected Successfully"))
   .catch((err) => console.log("DB Connection Error:", err));
 
+// المخططات (Schemas)
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   password: { type: String, required: true },
@@ -51,7 +59,9 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", messageSchema);
 
-// تسجيل حساب مع ضمان رفع صورة البروفايل فوراً إلى Cloudinary
+// مسارات API
+
+// 1. تسجيل حساب
 app.post("/api/register", async (req, res) => {
   try {
     const { username, password, avatar } = req.body;
@@ -76,6 +86,7 @@ app.post("/api/register", async (req, res) => {
   }
 });
 
+// 2. تسجيل الدخول
 app.post("/api/login", async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -91,12 +102,12 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
+// 3. البحث عن مستخدمين
 app.get("/api/users/search", async (req, res) => {
   try {
     const { q, current } = req.query;
     const users = await User.find({
-      username: { $regex: q, $options: "i" },
-      username: { $ne: current }
+      username: { $regex: q || "", $options: "i", $ne: current }
     }).select("username avatar");
     res.json(users);
   } catch (error) {
@@ -104,6 +115,7 @@ app.get("/api/users/search", async (req, res) => {
   }
 });
 
+// 4. جلب قائمة المحادثات
 app.get("/api/conversations/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -124,6 +136,7 @@ app.get("/api/conversations/:username", async (req, res) => {
   }
 });
 
+// 5. جلب الرسائل بين طرفين
 app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
@@ -140,7 +153,14 @@ app.get("/api/messages/:user1/:user2", async (req, res) => {
   }
 });
 
+// مسار رئيسي لتمرير الواجهة عند طلب الـ Root
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "index.html"));
+});
+
+// إدارة اتصالات Socket.io
 io.on("connection", (socket) => {
+
   socket.on("join_room", (username) => {
     socket.join(username);
   });
@@ -149,8 +169,11 @@ io.on("connection", (socket) => {
     try {
       let uploadedFileUrl = null;
       if (data.fileData) {
+        let resourceType = "auto";
+        if (data.type === "audio") resourceType = "video"; // لضمان رفع التسجيلات الصوتية بدقة
+
         const uploadResponse = await cloudinary.uploader.upload(data.fileData, {
-          resource_type: "auto",
+          resource_type: resourceType,
           folder: "chat_app_media"
         });
         uploadedFileUrl = uploadResponse.secure_url;
@@ -175,7 +198,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // تنبيهات المكالمات الصادرة والواردة لضمان رنين الموبايل/الكمبيوتر
+  // إدارة أحداث المكالمات الصوتية والمرئية
   socket.on("make_call", (data) => {
     io.to(data.recipient).emit("incoming_call", {
       caller: data.caller,
