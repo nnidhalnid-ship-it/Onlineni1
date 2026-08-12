@@ -23,7 +23,7 @@ app.use(cors());
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// تقديم الملفات الثابتة (مثل index.html)
+// تقديم الملفات الثابتة (مثل index.html و admin.html)
 app.use(express.static(path.join(__dirname, "public")));
 
 // إعداد Cloudinary
@@ -59,7 +59,7 @@ const messageSchema = new mongoose.Schema({
 });
 const Message = mongoose.model("Message", messageSchema);
 
-// مسارات API
+// ==================== مسارات المستخدمين (Public API) ====================
 
 // 1. تسجيل حساب
 app.post("/api/register", async (req, res) => {
@@ -102,11 +102,10 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 3. جلب جميع الحسابات المسجلة (الجديدة)
+// 3. جلب جميع الحسابات المسجلة
 app.get("/api/users", async (req, res) => {
   try {
     const { current } = req.query;
-    // استبعاد حساب المستخدِم الحالي إذا تَمّ تمريره
     const query = current ? { username: { $ne: current } } : {};
     const users = await User.find(query).select("username avatar");
     res.json(users);
@@ -166,6 +165,65 @@ app.get("/api/messages/:user1/:user2", async (req, res) => {
   }
 });
 
+// ==================== مسارات لوحة التحكم (ADMIN API) ====================
+
+// 1. جلب كل المستخدمين مع كافة التفاصيل للأدمن
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const users = await User.find({});
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في جلب المستخدمين" });
+  }
+});
+
+// 2. تعديل بيانات مستخدم (اسم المستخدم / كلمة المرور / الصورة)
+app.put("/api/admin/users/:id", async (req, res) => {
+  try {
+    const { username, password, avatar } = req.body;
+    const updateData = {};
+    if (username) updateData.username = username;
+    if (avatar) updateData.avatar = avatar;
+    if (password) {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+    await User.findByIdAndUpdate(req.params.id, updateData);
+    res.json({ success: true, message: "تم تحديث بيانات المستخدم بنجاح" });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في تعديل المستخدم" });
+  }
+});
+
+// 3. حذف حساب مستخدم
+app.delete("/api/admin/users/:id", async (req, res) => {
+  try {
+    await User.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: "تم حذف الحساب" });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في حذف الحساب" });
+  }
+});
+
+// 4. جلب كل المحادثات والرسائل في النظام
+app.get("/api/admin/messages", async (req, res) => {
+  try {
+    const messages = await Message.find({}).sort({ timestamp: -1 });
+    res.json(messages);
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في جلب الرسائل" });
+  }
+});
+
+// 5. حذف رسالة معينة
+app.delete("/api/admin/messages/:id", async (req, res) => {
+  try {
+    await Message.findByIdAndDelete(req.params.id);
+    res.json({ success: true, message: "تم حذف الرسالة" });
+  } catch (err) {
+    res.status(500).json({ error: "خطأ في حذف الرسالة" });
+  }
+});
+
 // مسار رئيسي لتمرير الواجهة عند طلب الـ Root
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
@@ -183,7 +241,7 @@ io.on("connection", (socket) => {
       let uploadedFileUrl = null;
       if (data.fileData) {
         let resourceType = "auto";
-        if (data.type === "audio") resourceType = "video"; // لضمان رفع التسجيلات الصوتية بدقة
+        if (data.type === "audio") resourceType = "video";
 
         const uploadResponse = await cloudinary.uploader.upload(data.fileData, {
           resource_type: resourceType,
