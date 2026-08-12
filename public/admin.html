@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>لوحة تحكم المنصة - Admin Dashboard</title>
+  <style>
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
+    body { background-color: #0f172a; color: #f8fafc; padding: 20px; }
+    h1 { margin-bottom: 20px; color: #38bdf8; text-align: center; }
+    .container { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 30px; }
+    .card { background: #1e293b; border-radius: 10px; padding: 20px; border: 1px solid #334155; }
+    .card h2 { margin-bottom: 15px; color: #f43f5e; border-bottom: 1px solid #334155; padding-bottom: 8px; }
+    table { width: 100%; border-collapse: collapse; text-align: right; }
+    th, td { padding: 12px; border-bottom: 1px solid #334155; }
+    th { background-color: #0f172a; color: #94a3b8; }
+    input { padding: 6px 10px; border-radius: 5px; border: 1px solid #475569; background: #0f172a; color: #fff; width: 100%; }
+    button { padding: 6px 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+    .btn-update { background-color: #0284c7; color: white; margin-left: 5px; }
+    .btn-delete { background-color: #e11d48; color: white; }
+    .avatar-img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+    .messages-list { max-height: 400px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+
+  <h1>لوحة التحكم والإدارة الإدارية</h1>
+
+  <div class="container">
+    
+    <!-- قسم إدارة الحسابات -->
+    <div class="card">
+      <h2>إدارة الحسابات وكلمات المرور</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>الصورة</th>
+            <th>اسم المستخدم</th>
+            <th>كلمة المرور الجديدة</th>
+            <th>الإجراءات</th>
+          </tr>
+        </thead>
+        <tbody id="usersTable">
+          <!-- يتم ملؤها تلقائياً -->
+        </tbody>
+      </table>
+    </div>
+
+    <!-- قسم مراقبة وإدارة الرسائل والمحادثات -->
+    <div class="card">
+      <h2>كافة المحادثات والرسائل في النظام</h2>
+      <div class="messages-list">
+        <table>
+          <thead>
+            <tr>
+              <th>المرسل</th>
+              <th>المستقبل</th>
+              <th>المحتوى / الملف</th>
+              <th>التاريخ</th>
+              <th>حذف</th>
+            </tr>
+          </thead>
+          <tbody id="messagesTable">
+            <!-- يتم ملؤها تلقائياً -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const SERVER_URL = window.location.origin;
+
+    // جلب قائمة المستخدمين
+    async function fetchUsers() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/admin/users`);
+        const users = await res.json();
+        const tbody = document.getElementById("usersTable");
+        tbody.innerHTML = "";
+
+        users.forEach(user => {
+          tbody.innerHTML += `
+            <tr>
+              <td><img src="${user.avatar || 'https://via.placeholder.com/40'}" class="avatar-img"></td>
+              <td><input type="text" id="user-${user._id}" value="${user.username}"></td>
+              <td><input type="password" id="pass-${user._id}" placeholder="كلمة سر جديدة"></td>
+              <td>
+                <button class="btn-update" onclick="updateUser('${user._id}')">تحديث</button>
+                <button class="btn-delete" onclick="deleteUser('${user._id}')">حذف</button>
+              </td>
+            </tr>
+          `;
+        });
+      } catch (err) {
+        console.error("خطأ في تحميل المستخدمين", err);
+      }
+    }
+
+    // تحديث بيانات مستخدم
+    async function updateUser(id) {
+      const username = document.getElementById(`user-${id}`).value;
+      const password = document.getElementById(`pass-${id}`).value;
+
+      const body = { username };
+      if (password) body.password = password;
+
+      const res = await fetch(`${SERVER_URL}/api/admin/users/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      alert(data.message || "تم التحديث");
+      fetchUsers();
+    }
+
+    // حذف مستخدم
+    async function deleteUser(id) {
+      if (!confirm("هل أنت تأكد من حذف هذا الحساب؟")) return;
+      await fetch(`${SERVER_URL}/api/admin/users/${id}`, { method: "DELETE" });
+      fetchUsers();
+    }
+
+    // جلب جميع الرسائل
+    async function fetchMessages() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/admin/messages`);
+        const messages = await res.json();
+        const tbody = document.getElementById("messagesTable");
+        tbody.innerHTML = "";
+
+        messages.forEach(msg => {
+          let content = msg.text || "";
+          if (msg.fileUrl) {
+            content += ` <a href="${msg.fileUrl}" target="_blank" style="color:#38bdf8">[ملف مرفق]</a>`;
+          }
+
+          tbody.innerHTML += `
+            <tr>
+              <td><b>${msg.sender}</b></td>
+              <td><b>${msg.recipient}</b></td>
+              <td>${content}</td>
+              <td>${new Date(msg.timestamp).toLocaleString("ar-EG")}</td>
+              <td><button class="btn-delete" onclick="deleteMessage('${msg._id}')">حذف</button></td>
+            </tr>
+          `;
+        });
+      } catch (err) {
+        console.error("خطأ في تحميل الرسائل", err);
+      }
+    }
+
+    // حذف رسالة
+    async function deleteMessage(id) {
+      if (!confirm("حذف هذه الرسالة؟")) return;
+      await fetch(`${SERVER_URL}/api/admin/messages/${id}`, { method: "DELETE" });
+      fetchMessages();
+    }
+
+    // تشغيل التحديث عند فتح الصفحة
+    fetchUsers();
+    fetchMessages();
+  </script>
+</body>
+</html>
