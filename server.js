@@ -102,7 +102,20 @@ app.post("/api/login", async (req, res) => {
   }
 });
 
-// 3. البحث عن مستخدمين
+// 3. جلب جميع الحسابات المسجلة (الجديدة)
+app.get("/api/users", async (req, res) => {
+  try {
+    const { current } = req.query;
+    // استبعاد حساب المستخدِم الحالي إذا تَمّ تمريره
+    const query = current ? { username: { $ne: current } } : {};
+    const users = await User.find(query).select("username avatar");
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: "خطأ في جلب كل المستخدمين" });
+  }
+});
+
+// 4. البحث عن مستخدمين
 app.get("/api/users/search", async (req, res) => {
   try {
     const { q, current } = req.query;
@@ -115,7 +128,7 @@ app.get("/api/users/search", async (req, res) => {
   }
 });
 
-// 4. جلب قائمة المحادثات
+// 5. جلب قائمة المحادثات
 app.get("/api/conversations/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -136,7 +149,7 @@ app.get("/api/conversations/:username", async (req, res) => {
   }
 });
 
-// 5. جلب الرسائل بين طرفين
+// 6. جلب الرسائل بين طرفين
 app.get("/api/messages/:user1/:user2", async (req, res) => {
   try {
     const { user1, user2 } = req.params;
