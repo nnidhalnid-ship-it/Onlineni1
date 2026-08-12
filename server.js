@@ -7,18 +7,11 @@ const bcrypt = require("bcryptjs");
 const cloudinary = require("cloudinary").v2;
 const dns = require("dns");
 const path = require("path");
-// 1. استدعاء مكتبة Gemini API
-const { GoogleGenAI } = require("@google/genai");
 
 dns.setDefaultResultOrder("ipv4first");
 
 const app = express();
 const server = http.createServer(app);
-
-// 2. إعداد مكتبة Gemini API (ضع مفتاحك المجاني مكان: ضع_مفتاح_الـ_API_هنا)
-const ai = new GoogleGenAI({ 
-  apiKey: process.env.GEMINI_API_KEY || "AQ.Ab8RN6K6XUfWGgY0o3hea3ApLxN8v3kXTTmhawr_PjC5ahGhww" 
-});
 
 const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
@@ -271,37 +264,6 @@ io.on("connection", (socket) => {
 
       io.to(data.recipient).emit("receive_message", newMessage);
       io.to(data.sender).emit("receive_message", newMessage);
-
-      // 3. التحقق مما إذا كانت الرسالة موجهة للبوت "Onlineni AI"
-      if (data.recipient === "Onlineni AI") {
-        try {
-          // استدعاء الموديل من Gemini API
-          const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: data.text || "مرحباً",
-          });
-
-          const aiReplyText = response.text || "لم أستطع فهم الرسالة.";
-
-          // إنشاء رسالة رد البوت
-          const aiMessage = new Message({
-            sender: "Onlineni AI",
-            recipient: data.sender,
-            text: aiReplyText,
-            type: "text",
-            timestamp: new Date()
-          });
-
-          await aiMessage.save();
-
-          // إرسال الرد إلى المستخدم مباشرة عبر Socket
-          io.to(data.sender).emit("receive_message", aiMessage);
-
-        } catch (aiError) {
-          console.error("خطأ في رد Onlineni AI:", aiError);
-        }
-      }
-
     } catch (error) {
       console.error("خطأ في إرسال الرسالة:", error);
     }
